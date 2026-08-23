@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sorteio Fácil</title>
+
+<!-- ==================================================================
+     FIREBASE: crie um projeto isolado (Firebase Console > Realtime Database)
+     e cole as credenciais abaixo. Ative "Realtime Database" (não Firestore).
+     Regras sugeridas para começar (modo teste):
+     {
+       "rules": {
+         ".read": true,
+         ".write": true
+       }
+     }
+     Depois de testar, aperte para regras mais restritas (posso ajudar).
+     ================================================================== -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+:root{--bg:#0a0a0a;--card:#161310;--line:#3a2f14;--txt:#f5f0e6;--muted:#b8ac8f;--g:#22c55e;--b:#38bdf8;--r:#ef4444;--gold:#d4af37;--gold2:#f5d576;--fb:#1877F2}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:radial-gradient(circle at 50% -10%,#241c08 0%,#0a0a0a 45%,#050505 100%);color:var(--txt)}
+header{padding:14px 18px;border-bottom:2px solid var(--gold);display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:#0a0a0a;z-index:50}
+.headerBrand{display:flex;align-items:center;gap:12px}
+.headerLogo{height:52px;width:auto;border-radius:8px}
+.headerText small{color:var(--gold2)}
+main{display:grid;gap:18px;padding:16px;max-width:1200px;margin:0 auto}
+.adminGrid{display:grid;grid-template-columns:330px 1fr;gap:16px}
+@media (max-width:860px){ .adminGrid{grid-template-columns:1fr} }
+.card{background:rgba(22,19,16,.95);border:1px solid var(--line);border-radius:16px;padding:16px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
+input,select,button,textarea{
+width:100%;border-radius:12px;border:1px solid #334155;background:#0b1220;color:var(--txt);
+padding:11px 12px;outline:none;font-size:15px
+}
+button{cursor:pointer;font-weight:700}
+.primary{background:linear-gradient(90deg,var(--g),#16a34a);border:none;color:#052e16}
+.blue{background:linear-gradient(90deg,var(--b),#0284c7);border:none;color:#082f49}
+.gray{background:#1f2937;color:var(--txt)}
+.gold{background:linear-gradient(90deg,var(--gold),#d97706);border:none;color:#451a03}
+.danger{background:linear-gradient(90deg,#f87171,#dc2626);border:none;color:#fff}
+.whats{background:linear-gradient(90deg,#25D366,#128C7E);border:none;color:#fff;font-size:17px}
+.facebook{background:linear-gradient(90deg,#1877F2,#0d5cd6);border:none;color:#fff;width:auto;padding:8px 14px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;border-radius:10px;font-weight:700}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#241c08;color:var(--gold2);font-size:12px}
+.pill.live{background:#052e16;color:#86efac}
+.small-btn{width:auto;padding:8px 12px;font-size:13px;border-radius:10px}
+hr{border:0;border-top:1px solid #1f2937;margin:16px 0}
+small,.muted{color:var(--muted)}
+.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.section-title h2{margin:0}
+
+/* ---- Tabs modalidade ---- */
+.tabs{display:flex;gap:8px;margin:10px 0}
+.tab{flex:1;padding:12px;border-radius:12px;border:1px solid #334155;background:#0b1220;text-align:center;font-weight:700;cursor:pointer;color:var(--muted)}
+.tab.active{background:linear-gradient(90deg,var(--gold),#b8860b);color:#1a1400;border-color:transparent}
+
+/* ---- Netflix-style grid ---- */
+.searchRow{display:flex;gap:8px;margin:10px 0}
+.searchRow input{flex:1}
+.posterGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin-top:12px}
+.poster{
+  aspect-ratio:2/3;border-radius:12px;border:2px solid #1f2937;background:linear-gradient(160deg,#1e293b,#0b1220);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;position:relative;
+  transition:transform .12s ease, border-color .12s ease;
+}
+.poster:active{transform:scale(.95)}
+.poster .num{font-size:22px;font-weight:900}
+.poster .tipoIcon{font-size:22px}
+.poster .badge{position:absolute;top:6px;right:6px;font-size:9px;padding:3px 6px;border-radius:999px;font-weight:800}
+.poster.livre{border-color:#166534}
+.poster.livre .badge{background:#052e16;color:#86efac}
+.poster.reservada{border-color:#92400e;opacity:.85}
+.poster.reservada .badge{background:#451a03;color:#fcd34d}
+.poster.vendida{border-color:#7f1d1d;opacity:.55;cursor:not-allowed}
+.poster.vendida .badge{background:#450a0a;color:#fca5a5}
+.loadMoreWrap{display:flex;justify-content:center;margin-top:14px}
+.loadMoreWrap button{width:auto;padding:10px 20px}
+
+/* ---- Modal cartela ---- */
+.modalOverlay{position:fixed;inset:0;background:rgba(2,6,23,.92);display:none;align-items:flex-end;justify-content:center;z-index:200}
+.modalOverlay.open{display:flex}
+.modalBox{width:100%;max-width:480px;background:#100d0a;border:1px solid var(--gold);border-radius:20px 20px 0 0;padding:18px;max-height:88vh;overflow:auto}
+.modalBox h3{margin-top:0}
+.bingoGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:12px 0}
+.bingoGrid .col-head{text-align:center;font-weight:900;color:#a78bfa;font-size:14px}
+.bingoGrid .cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:#132238;border-radius:8px;font-weight:700;font-size:13px}
+.bingoGrid .cell.free{background:#312e81;color:#c7d2fe;font-size:11px}
+.dezenaChips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.dezenaChips .chip{padding:10px 14px;border-radius:999px;background:#132238;font-weight:800}
+.closeModal{position:absolute;top:14px;right:16px;width:auto;padding:6px 12px;background:#1f2937}
+.modalBox{position:relative}
+
+/* ---- Barra de seleção sticky ---- */
+.selectBar{position:sticky;bottom:0;background:#1a1400;border:1px solid var(--gold);border-radius:14px;padding:12px;margin-top:14px;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+.selectBar.show{display:flex}
+.selectBar .info{flex:1;min-width:180px}
+
+/* ---- Globo ---- */
+.board{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+@media (max-width:860px){ .board{grid-template-columns:1fr} }
+.globoWrap{display:flex;flex-direction:column;gap:12px;align-items:center}
+.globo{
+width:min(100%,380px);aspect-ratio:1;border-radius:50%;
+background:radial-gradient(circle at 30% 30%, #93c5fd, #1d4ed8 28%, #0f172a 70%);
+border:6px solid #dbeafe;position:relative;overflow:hidden;
+}
+.globo.spin{animation:spin 1.1s linear infinite}
+.globo.fast{animation-duration:.45s}
+.globo.medium{animation-duration:.9s}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.ball{
+position:absolute;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+font-weight:800;color:#0f172a;background:radial-gradient(circle at 30% 30%, #fff, #f8fafc 60%, #cbd5e1);
+}
+.bigNumber{font-size:48px;font-weight:900}
+.resultBox{display:grid;gap:10px;width:100%}
+.resultLine{padding:12px;border:1px solid var(--line);border-radius:12px;background:#0b1220}
+.list{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.item{padding:10px 12px;border-bottom:1px solid #1f2937;font-size:14px}
+.item:last-child{border-bottom:none}
+.ok{color:#86efac}.pend{color:#fcd34d}.inv{color:#fca5a5}
+.prizeImg{width:100%;height:160px;object-fit:cover;border-radius:12px;border:1px solid var(--line);background:#0b1220}
+.drawnGrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.drawnBall{width:28px;height:28px;border-radius:50%;background:#132238;color:#bfdbfe;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid #1f2937}
+
+/* ---- Login overlay (só admin, sob demanda) ---- */
+.overlay{position:fixed;inset:0;background:rgba(2,6,23,.96);display:none;align-items:center;justify-content:center;z-index:999}
+.loginBox{width:min(92vw,380px);background:#111827;border:1px solid #1f2937;border-radius:16px;padding:18px}
+</style>
+</head>
+<body>
+
+<div class="overlay" id="loginOverlay">
+  <div class="loginBox">
+    <h2>Login do administrador</h2>
+    <label>Usuário</label>
+    <input id="user">
+    <label>Senha</label>
+    <input id="pass" type="password">
+    <button class="primary" style="margin-top:10px" onclick="login()">Entrar</button>
+    <p class="muted" style="margin-top:10px;font-size:12px">Padrão inicial: admin / admin123 (troque depois de entrar).</p>
+    <button class="gray" style="margin-top:6px" onclick="closeLogin()">Fechar</button>
+  </div>
+</div>
+
+<div class="modalOverlay" id="cartelaModal">
+  <div class="modalBox">
+    <button class="closeModal" onclick="closeCartelaModal()">Fechar ✕</button>
+    <h3 id="modalTitle">Cartela</h3>
+    <div id="modalBody"></div>
+    <button class="whats" id="modalWhatsBtn" onclick="confirmarSelecao()">📲 EU QUERO ESTA!</button>
+  </div>
+</div>
+
+<header>
+  <div class="headerBrand">
+    <img class="headerLogo" id="logoTapTarget" onclick="handleLogoTap()" style="cursor:pointer" src="data:image/jpeg;base64,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" alt="Setor AS Soluções Digitais">
+    <div class="headerText">
+      <h1 style="margin:0;font-size:20px">Sorteio Fácil</h1>
+      <small>Escolha sua cartela e garanta com o admin pelo WhatsApp</small>
+    </div>
+  </div>
+  <div class="tags">
+    <span class="pill live" id="connPill">Conectando…</span>
+    <span class="pill" id="authPill">Administrador: NÃO LOGADO</span>
+    <a class="facebook" href="https://www.facebook.com/share/1Bp3j1ZeDC/" target="_blank" rel="noopener">📘 Facebook</a>
+  </div>
+</header>
+
+<main id="mainArea">
+
+  <!-- ============ VITRINE PÚBLICA DE CARTELAS ============ -->
+  <section class="card">
+    <div class="section-title">
+      <h2>Escolha sua cartela</h2>
+      <span class="pill">Pix: 504ffa43-b13a-4283-8430-8cba24b9de3f</span>
+    </div>
+    <input id="pixPayload" readonly value="Chave Pix: 504ffa43-b13a-4283-8430-8cba24b9de3f | Nome: CARLOS F.F.S." style="margin-top:8px">
+    <button class="blue" onclick="copyPix()" style="margin-top:8px">Copiar chave Pix</button>
+
+    <div class="tabs">
+      <div class="tab active" id="tabBingo" onclick="switchTipo('bingo')">🎯 Cartela Cheia (Bingo)</div>
+      <div class="tab" id="tabDezena" onclick="switchTipo('dezena')">🔟 Sorteio por Dezena</div>
+    </div>
+
+    <div class="searchRow">
+      <input id="searchCartela" placeholder="Buscar por número (ex: 045)" oninput="filterCartelas()">
+    </div>
+
+    <div class="posterGrid" id="posterGrid"></div>
+    <div class="loadMoreWrap">
+      <button class="gray" id="loadMoreBtn" onclick="loadMore()">Carregar mais cartelas</button>
+    </div>
+
+    <div class="selectBar" id="selectBar">
+      <div class="info">
+        <strong id="selectBarText">Cartela selecionada</strong><br>
+        <small class="muted">Toque em "Enviar" pra reservar e falar com o admin</small>
+      </div>
+      <button class="whats" style="width:auto;padding:10px 16px" onclick="openCartelaModal(selectedCartelaId)">Ver / Enviar</button>
+    </div>
+  </section>
+
+  <!-- ============ GLOBO / SORTEIO AO VIVO (público) ============ -->
+  <section class="board">
+    <div class="card globoWrap">
+      <h2>Globo do sorteio</h2>
+      <img id="prizeImg" class="prizeImg" alt="Prêmio" style="display:none">
+      <div id="globo" class="globo"></div>
+      <div class="row" style="width:100%" id="speedControls">
+        <button class="blue" onclick="setSpeed('medium')">Girar médio</button>
+        <button class="blue" onclick="setSpeed('fast')">Girar rápido</button>
+      </div>
+      <div class="row" style="width:100%" id="drawControls">
+        <button class="primary" onclick="drawNumber()">Extrair número</button>
+        <button class="gray" onclick="stopSpin()">Parar globo</button>
+      </div>
+      <div class="resultBox">
+        <div class="resultLine">
+          <div class="muted">Número sorteado</div>
+          <div class="bigNumber" id="lastNumber">--</div>
+        </div>
+        <div class="resultLine">
+          <div class="muted">Cartela premiada / apostador</div>
+          <div id="winnerText">Aguardando sorteio.</div>
+        </div>
+        <div class="resultLine">
+          <div class="muted">Números já sorteados</div>
+          <div class="drawnGrid" id="drawnGrid"></div>
+        </div>
+      </div>
+      <button class="danger" id="resetDrawBtn" style="display:none" onclick="resetDraw()">Reiniciar sorteio</button>
+    </div>
+
+    <div class="card" id="resultsPublicCard">
+      <h2>Resultados</h2>
+      <div class="list" id="rlist"></div>
+    </div>
+  </section>
+
+  <!-- ============ ÁREA ADMIN (login necessário) ============ -->
+  <section class="adminGrid" id="adminArea" style="display:none">
+    <div class="card">
+      <h2>Cadastro manual</h2>
+      <form id="addForm" onsubmit="return addParticipant(event)">
+        <label>Modalidade</label>
+        <select name="mode" required>
+          <option value="bingo">Bingo - cartela cheia</option>
+          <option value="dezena">Sorteio - 10 dezenas</option>
+        </select>
+        <label>Nome do participante</label>
+        <input name="name" required>
+        <label>Primeiro nome</label>
+        <input name="first_name">
+        <div class="row">
+          <div>
+            <label>Número de ordem / cartela</label>
+            <input name="order_no">
+          </div>
+          <div>
+            <label>Status</label>
+            <select name="status">
+              <option value="PENDENTE">PENDENTE</option>
+              <option value="APTO">APTO</option>
+              <option value="INAPTO">INAPTO</option>
+            </select>
+          </div>
+        </div>
+        <label>Cartela / sequência numérica</label>
+        <textarea name="numbers" rows="3" placeholder="Ex.: 03, 15, 22, 41, 58"></textarea>
+        <label>Upload de comprovante (imagem)</label>
+        <input type="file" name="proof_file" accept="image/*">
+        <button class="primary" style="margin-top:10px" type="submit">Adicionar participante</button>
+      </form>
+      <hr>
+      <h3>Imagem do prêmio</h3>
+      <input id="prizeInput" type="file" accept="image/*">
+    </div>
+
+    <div class="card">
+      <h2>Painel</h2>
+      <div class="row">
+        <div class="resultLine">
+          <div class="muted">Participantes</div>
+          <div class="bigNumber" id="countAll" style="font-size:30px">0</div>
+        </div>
+        <div class="resultLine">
+          <div class="muted">APTOS</div>
+          <div class="bigNumber" id="countAptos" style="font-size:30px">0</div>
+        </div>
+      </div>
+
+      <label>Lista de participantes</label>
+      <div class="list" id="plist"></div>
+
+      <h3 style="margin-top:14px">Reservas de cartelas (vitrine)</h3>
+      <div class="row">
+        <button class="gray small-btn" onclick="renderReservas('reservada')">Ver pendentes</button>
+        <button class="gray small-btn" onclick="renderReservas('vendida')">Ver vendidas</button>
+      </div>
+      <div class="list" id="reservasList" style="margin-top:8px"></div>
+
+      <h3 style="margin-top:14px">Admins</h3>
+      <form onsubmit="return createAdmin(event)" class="row">
+        <div>
+          <label>Novo usuário</label>
+          <input id="newAdminUser" placeholder="novoadmin">
+        </div>
+        <div>
+          <label>Senha</label>
+          <input id="newAdminPass" type="password" placeholder="senha forte">
+        </div>
+        <div style="grid-column:1 / -1">
+          <button class="blue" type="submit">Criar admin</button>
+        </div>
+      </form>
+
+      <div class="row" style="margin-top:10px">
+        <button class="danger" onclick="clearAll()">Limpar participantes</button>
+        <button class="gray" onclick="logout()">Logout</button>
+      </div>
+
+      <p class="muted" style="margin-top:12px;font-size:12px">
+        Link só de exibição (sem login, sem controles) para TV/telão:<br>
+        <code id="displayLink"></code>
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+/* ==================================================================
+   1) COLE AQUI a config do SEU projeto Firebase (isolado deste app)
+   ================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyD6URqytDKVpjhfN_itmX_Tfjt2VaKouzY",
+  authDomain: "sorteiofacil-setor-as.firebaseapp.com",
+  databaseURL: "https://sorteiofacil-setor-as-default-rtdb.firebaseio.com",
+  projectId: "sorteiofacil-setor-as",
+  storageBucket: "sorteiofacil-setor-as.firebasestorage.app",
+  messagingSenderId: "70076518915",
+  appId: "1:70076518915:web:de250d84b277bece237436"
+};
+
+const WHATSAPP_NUMBER = "5592985966169"; // Brasil + DDD 92 + número
+const TOTAL_CARTELAS_POR_MODO = 200;
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const params = new URLSearchParams(location.search);
+const isDisplay = params.get('display') === '1';
+
+let isAdmin = false;
+let participantsCache = [];
+let resultsCache = [];
+let stateCache = { lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] };
+let cartelasCache = { bingo: {}, dezena: {} };
+let tipoAtivo = 'bingo';
+let renderedCount = 0;
+const BATCH = 60;
+let selectedCartelaId = null;
+let currentModalId = null;
+
+document.getElementById('displayLink').textContent = location.origin + location.pathname + '?display=1';
+
+if (isDisplay) {
+  document.getElementById('adminArea').style.display = 'none';
+  document.getElementById('speedControls').style.display = 'none';
+  document.getElementById('drawControls').style.display = 'none';
+}
+
+/* ---------- conexão ---------- */
+db.ref('.info/connected').on('value', snap => {
+  const pill = document.getElementById('connPill');
+  if (snap.val() === true) { pill.textContent = 'Sincronizado ●'; pill.classList.add('live'); }
+  else { pill.textContent = 'Conectando…'; pill.classList.remove('live'); }
+});
+
+/* ---------- seed admin padrão ---------- */
+async function seedDefaultAdmin() {
+  const snap = await db.ref('admins').get();
+  if (!snap.exists()) {
+    const hash = await sha256('admin123');
+    await db.ref('admins/admin').set({ passwordHash: hash });
+  }
+}
+seedDefaultAdmin();
+
+async function sha256(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+/* ---------- login admin (sob demanda, não bloqueia visitantes) ---------- */
+function openLogin(){ document.getElementById('loginOverlay').style.display = 'flex'; }
+function closeLogin(){ document.getElementById('loginOverlay').style.display = 'none'; }
+
+/* ---------- desbloqueio do login: 5 toques na logo ---------- */
+let logoTapCount = 0;
+let logoTapTimer = null;
+function handleLogoTap(){
+  logoTapCount++;
+  if (logoTapTimer) clearTimeout(logoTapTimer);
+  logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
+  if (logoTapCount >= 5) {
+    logoTapCount = 0;
+    clearTimeout(logoTapTimer);
+    openLogin();
+  }
+}
+
+async function login(){
+  const username = document.getElementById('user').value.trim();
+  const password = document.getElementById('pass').value;
+  const snap = await db.ref('admins/' + username).get();
+  if (!snap.exists()) { alert('Login inválido'); return; }
+  const hash = await sha256(password);
+  if (snap.val().passwordHash === hash) {
+    isAdmin = true;
+    sessionStorage.setItem('sf_admin_user', username);
+    closeLogin();
+    applyAuthUI();
+  } else {
+    alert('Login inválido');
+  }
+}
+function logout(){
+  isAdmin = false;
+  sessionStorage.removeItem('sf_admin_user');
+  applyAuthUI();
+}
+function applyAuthUI(){
+  document.getElementById('authPill').textContent = 'Administrador: ' + (isAdmin ? 'LOGADO' : 'NÃO LOGADO');
+  if (!isDisplay) {
+    document.getElementById('adminArea').style.display = isAdmin ? 'grid' : 'none';
+    document.getElementById('speedControls').style.display = isAdmin ? 'grid' : 'none';
+    document.getElementById('drawControls').style.display = isAdmin ? 'grid' : 'none';
+    document.getElementById('resetDrawBtn').style.display = isAdmin ? 'block' : 'none';
+  }
+  renderPosterGrid();
+}
+(function restoreSession(){
+  const saved = sessionStorage.getItem('sf_admin_user');
+  if (saved) isAdmin = true;
+  applyAuthUI();
+})();
+
+/* ---------- Pix ---------- */
+function copyPix(){
+  navigator.clipboard.writeText(document.getElementById('pixPayload').value)
+    .then(()=>alert('Pix copiado.'))
+    .catch(()=>alert('Não foi possível copiar automaticamente. Selecione o texto e copie manualmente.'));
+}
+
+/* ---------- imagem do prêmio ---------- */
+document.getElementById('prizeInput').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const compressed = await compressImage(f, 900, 0.75);
+  db.ref('estado/prizeImg').set(compressed);
+});
+db.ref('estado/prizeImg').on('value', snap => {
+  const img = document.getElementById('prizeImg');
+  const val = snap.val();
+  if (val) { img.src = val; img.style.display = 'block'; }
+  else { img.style.display = 'none'; }
+});
+function compressImage(file, maxSize, quality){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h && w > maxSize) { h = h * (maxSize / w); w = maxSize; }
+        else if (h > maxSize) { w = w * (maxSize / h); h = maxSize; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ================== GERAÇÃO DAS 500 + 500 CARTELAS (roda 1x) ================== */
+function randUniqueInRange(min, max, count){
+  const pool = [];
+  for (let i = min; i <= max; i++) pool.push(i);
+  for (let i = pool.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count).sort((a,b)=>a-b);
+}
+
+function gerarCartelaBingo(){
+  return {
+    B: randUniqueInRange(1, 15, 5),
+    I: randUniqueInRange(16, 30, 5),
+    N: randUniqueInRange(31, 45, 4), // + espaço livre no centro
+    G: randUniqueInRange(46, 60, 5),
+    O: randUniqueInRange(61, 75, 5)
+  };
+}
+
+async function seedCartelas(){
+  const lockSnap = await db.ref('meta/cartelasGeradas').get();
+  if (lockSnap.exists() && lockSnap.val() === true) return;
+
+  // trava simples para evitar geração dupla em carregamentos simultâneos
+  const claim = await db.ref('meta/cartelasGeradas').transaction(cur => cur === true ? cur : true);
+  if (!claim.committed || claim.snapshot.val() !== true) return;
+  const already = await db.ref('cartelas/bingo').get();
+  if (already.exists()) return; // já foi gerado por outra sessão
+
+  const bingoSeen = new Set();
+  const bingoUpdates = {};
+  for (let i = 1; i <= TOTAL_CARTELAS_POR_MODO; i++){
+    let grid, key;
+    do {
+      grid = gerarCartelaBingo();
+      key = JSON.stringify(grid);
+    } while (bingoSeen.has(key));
+    bingoSeen.add(key);
+    const id = 'B' + String(i).padStart(3, '0');
+    bingoUpdates[id] = { id, tipo: 'bingo', grid, status: 'livre' };
+  }
+  await db.ref('cartelas/bingo').set(bingoUpdates);
+
+  const dezenaSeen = new Set();
+  const dezenaUpdates = {};
+  for (let i = 1; i <= TOTAL_CARTELAS_POR_MODO; i++){
+    let nums, key;
+    do {
+      nums = randUniqueInRange(1, 75, 10);
+      key = nums.join(',');
+    } while (dezenaSeen.has(key));
+    dezenaSeen.add(key);
+    const id = 'D' + String(i).padStart(3, '0');
+    dezenaUpdates[id] = { id, tipo: 'dezena', numeros: nums, status: 'livre' };
+  }
+  await db.ref('cartelas/dezena').set(dezenaUpdates);
+}
+seedCartelas();
+
+/* ---------- listeners de cartelas ---------- */
+db.ref('cartelas/bingo').on('value', snap => {
+  cartelasCache.bingo = snap.val() || {};
+  if (tipoAtivo === 'bingo') renderPosterGrid();
+});
+db.ref('cartelas/dezena').on('value', snap => {
+  cartelasCache.dezena = snap.val() || {};
+  if (tipoAtivo === 'dezena') renderPosterGrid();
+});
+
+/* ---------- tabs / grid Netflix-style ---------- */
+function switchTipo(tipo){
+  tipoAtivo = tipo;
+  document.getElementById('tabBingo').classList.toggle('active', tipo === 'bingo');
+  document.getElementById('tabDezena').classList.toggle('active', tipo === 'dezena');
+  document.getElementById('searchCartela').value = '';
+  renderedCount = 0;
+  renderPosterGrid();
+}
+
+function getListaAtiva(){
+  const obj = cartelasCache[tipoAtivo] || {};
+  return Object.values(obj).sort((a,b) => a.id.localeCompare(b.id));
+}
+
+function renderPosterGrid(){
+  const grid = document.getElementById('posterGrid');
+  const lista = getListaAtiva();
+  const term = (document.getElementById('searchCartela').value || '').trim().toUpperCase();
+  const filtered = term ? lista.filter(c => c.id.includes(term)) : lista;
+
+  if (renderedCount === 0) renderedCount = Math.min(BATCH, filtered.length);
+  const toShow = filtered.slice(0, renderedCount);
+
+  grid.innerHTML = toShow.map(c => `
+    <div class="poster ${c.status}" onclick="openCartelaModal('${tipoAtivo}:${c.id}')">
+      <span class="badge">${c.status === 'livre' ? 'LIVRE' : c.status === 'reservada' ? 'RESERVADA' : 'VENDIDA'}</span>
+      <div class="tipoIcon">${tipoAtivo === 'bingo' ? '🎯' : '🔟'}</div>
+      <div class="num">${c.id}</div>
+    </div>
+  `).join('') || "<p class='muted'>Nenhuma cartela encontrada.</p>";
+
+  document.getElementById('loadMoreBtn').style.display = renderedCount < filtered.length ? 'block' : 'none';
+}
+
+function filterCartelas(){
+  renderedCount = 0;
+  renderPosterGrid();
+}
+function loadMore(){
+  renderedCount += BATCH;
+  renderPosterGrid();
+}
+
+/* ---------- modal de cartela ---------- */
+function openCartelaModal(compositeId){
+  const [tipo, id] = compositeId.split(':');
+  const c = cartelasCache[tipo][id];
+  if (!c) return;
+  currentModalId = compositeId;
+  document.getElementById('modalTitle').textContent =
+    (tipo === 'bingo' ? 'Cartela de Bingo ' : 'Série de Dezena ') + c.id + ' — ' +
+    (c.status === 'livre' ? 'Disponível' : c.status === 'reservada' ? 'Reservada (aguardando confirmação)' : 'Já vendida');
+
+  let body = '';
+  if (tipo === 'bingo') {
+    body = '<div class="bingoGrid">' +
+      ['B','I','N','G','O'].map(l => `<div class="col-head">${l}</div>`).join('') +
+      [0,1,2,3,4].map(row => {
+        return ['B','I','N','G','O'].map(col => {
+          if (col === 'N' && row === 2) return '<div class="cell free">★</div>';
+          const arr = c.grid[col];
+          const idx = col === 'N' && row > 2 ? row - 1 : row;
+          const val = arr[idx];
+          return `<div class="cell">${val ?? ''}</div>`;
+        }).join('');
+      }).join('') +
+      '</div>';
+  } else {
+    body = '<div class="dezenaChips">' + c.numeros.map(n => `<div class="chip">${String(n).padStart(2,'0')}</div>`).join('') + '</div>';
+  }
+  document.getElementById('modalBody').innerHTML = body;
+
+  const btn = document.getElementById('modalWhatsBtn');
+  if (c.status === 'livre') {
+    btn.style.display = 'block';
+    btn.textContent = '📲 EU QUERO ESTA!';
+  } else {
+    btn.style.display = 'none';
+  }
+
+  document.getElementById('cartelaModal').classList.add('open');
+  selectedCartelaId = compositeId;
+  updateSelectBar(c, tipo);
+}
+function closeCartelaModal(){
+  document.getElementById('cartelaModal').classList.remove('open');
+}
+function updateSelectBar(c, tipo){
+  const bar = document.getElementById('selectBar');
+  if (c.status !== 'livre') { bar.classList.remove('show'); return; }
+  document.getElementById('selectBarText').textContent =
+    (tipo === 'bingo' ? 'Cartela ' : 'Série ') + c.id + ' selecionada';
+  bar.classList.add('show');
+}
+
+/* ---------- reservar + enviar WhatsApp ---------- */
+async function confirmarSelecao(){
+  if (!currentModalId) return;
+  const [tipo, id] = currentModalId.split(':');
+  const path = 'cartelas/' + tipo + '/' + id;
+
+  // reserva de forma segura: só marca se ainda estiver livre (evita 2 pessoas pegarem a mesma)
+  const result = await db.ref(path + '/status').transaction(cur => {
+    if (cur === 'livre' || cur === null) return 'reservada';
+    return cur; // já não está mais livre, aborta
+  });
+
+  if (!result.committed || result.snapshot.val() !== 'reservada') {
+    alert('Ops! Essa cartela acabou de ser reservada por outra pessoa. Escolha outra.');
+    closeCartelaModal();
+    return;
+  }
+  await db.ref(path + '/reservadoEm').set(Date.now());
+
+  const texto = tipo === 'bingo'
+    ? `Olá! Quero garantir a Cartela de Bingo Nº ${id} do Sorteio Fácil. Pode confirmar a reserva pra mim?`
+    : `Olá! Quero garantir a Série de Dezena Nº ${id} do Sorteio Fácil. Pode confirmar a reserva pra mim?`;
+
+  closeCartelaModal();
+  window.location.href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(texto)}`;
+}
+
+/* ---------- admin: gestão de reservas ---------- */
+async function renderReservas(status){
+  const [bSnap, dSnap] = await Promise.all([db.ref('cartelas/bingo').get(), db.ref('cartelas/dezena').get()]);
+  const bingo = Object.values(bSnap.val() || {}).filter(c => c.status === status).map(c => ({...c, tipo:'bingo'}));
+  const dezena = Object.values(dSnap.val() || {}).filter(c => c.status === status).map(c => ({...c, tipo:'dezena'}));
+  const all = [...bingo, ...dezena].sort((a,b) => (b.reservadoEm||0) - (a.reservadoEm||0));
+  const list = document.getElementById('reservasList');
+  list.innerHTML = all.map(c => `
+    <div class="item">
+      <strong>${c.tipo === 'bingo' ? 'Bingo' : 'Dezena'} ${c.id}</strong> — ${c.status}<br>
+      <small>${c.reservadoEm ? new Date(c.reservadoEm).toLocaleString('pt-BR') : ''}</small>
+      <div class="row" style="margin-top:6px">
+        ${status === 'reservada' ? `<button class="primary small-btn" onclick="setCartelaStatus('${c.tipo}','${c.id}','vendida')">Confirmar venda</button>` : ''}
+        <button class="gray small-btn" onclick="setCartelaStatus('${c.tipo}','${c.id}','livre')">Liberar</button>
+      </div>
+    </div>
+  `).join('') || "<div class='item'>Nada por aqui.</div>";
+}
+function setCartelaStatus(tipo, id, status){
+  if (!isAdmin) return;
+  const updates = { status };
+  if (status === 'livre') updates.reservadoEm = null;
+  db.ref('cartelas/' + tipo + '/' + id).update(updates);
+  renderReservas(status === 'livre' ? 'reservada' : status);
+}
+
+/* ---------- participantes (cadastro manual do admin) ---------- */
+async function addParticipant(ev){
+  ev.preventDefault();
+  if (!isAdmin) return false;
+  const form = ev.target;
+  const fd = new FormData(form);
+  const proofFile = fd.get('proof_file');
+  let proofData = null;
+  if (proofFile && proofFile.size > 0) {
+    proofData = await compressImage(proofFile, 1000, 0.7);
+  }
+  const p = {
+    mode: fd.get('mode'),
+    name: fd.get('name').trim(),
+    first_name: (fd.get('first_name') || '').trim(),
+    order_no: (fd.get('order_no') || '').trim(),
+    numbers: (fd.get('numbers') || '').trim(),
+    status: fd.get('status'),
+    proof_file: proofData,
+    created_at: Date.now()
+  };
+  if (!p.name) return false;
+  await db.ref('participantes').push(p);
+  form.reset();
+  return false;
+}
+function setStatus(id, status){
+  if (!isAdmin) return;
+  db.ref('participantes/' + id + '/status').set(status);
+}
+function deleteParticipant(id){
+  if (!isAdmin) return;
+  if (!confirm('Remover participante?')) return;
+  db.ref('participantes/' + id).remove();
+}
+db.ref('participantes').on('value', snap => {
+  const val = snap.val() || {};
+  participantsCache = Object.entries(val).map(([id, p]) => ({ id, ...p }))
+    .sort((a,b) => (b.created_at||0) - (a.created_at||0));
+  renderParticipants();
+});
+function renderParticipants(){
+  document.getElementById('countAll').textContent = participantsCache.length;
+  document.getElementById('countAptos').textContent = participantsCache.filter(p => p.status === 'APTO').length;
+  const plist = document.getElementById('plist');
+  if (!plist) return;
+  plist.innerHTML = participantsCache.map((p, i) => `
+    <div class="item">
+      <strong>${i+1}. ${escapeHtml(p.name)}</strong> ${p.first_name ? '('+escapeHtml(p.first_name)+')' : ''}<br>
+      Modalidade: ${escapeHtml(p.mode)} | Ordem: ${escapeHtml(p.order_no || '—')} | Status: <span class="${p.status==='APTO'?'ok':p.status==='INAPTO'?'inv':'pend'}">${p.status}</span><br>
+      Cartela: ${escapeHtml(p.numbers || '—')} ${p.proof_file ? '<br><a href="'+p.proof_file+'" target="_blank" style="color:#93c5fd">Ver comprovante</a>' : ''}
+      <div class="row" style="margin-top:8px">
+        <select onchange="setStatus('${p.id}', this.value)">
+          <option value="PENDENTE" ${p.status==='PENDENTE'?'selected':''}>PENDENTE</option>
+          <option value="APTO" ${p.status==='APTO'?'selected':''}>APTO</option>
+          <option value="INAPTO" ${p.status==='INAPTO'?'selected':''}>INAPTO</option>
+        </select>
+        <button class="danger" onclick="deleteParticipant('${p.id}')">Remover</button>
+      </div>
+    </div>`).join('') || "<div class='item'>Nenhum participante.</div>";
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- resultados ---------- */
+db.ref('resultados').on('value', snap => {
+  const val = snap.val() || {};
+  resultsCache = Object.entries(val).map(([id, r]) => ({ id, ...r }))
+    .sort((a,b) => (a.created_at||0) - (b.created_at||0));
+  renderResults();
+});
+function renderResults(){
+  const rlist = document.getElementById('rlist');
+  if (!rlist) return;
+  rlist.innerHTML = resultsCache.slice().reverse().map(r => `
+    <div class="item"><strong>${escapeHtml(r.number)}</strong> | ${escapeHtml(r.mode)}<br>${escapeHtml(r.winner || 'Sem vencedor')}<br><small>${new Date(r.created_at).toLocaleString('pt-BR')}</small></div>
+  `).join('') || "<div class='item'>Sem sorteios.</div>";
+}
+
+/* ---------- estado do globo (sincronizado) ---------- */
+let estadoInitialized = false;
+let prevLastNumber = undefined;
+db.ref('estado').on('value', snap => {
+  const val = snap.val() || {};
+  stateCache.lastNumber = val.lastNumber ?? null;
+  stateCache.winnerText = val.winnerText || 'Aguardando sorteio.';
+  stateCache.drawn = val.drawn ? Object.values(val.drawn) : [];
+  document.getElementById('lastNumber').textContent = stateCache.lastNumber ? String(stateCache.lastNumber).padStart(2,'0') : '--';
+  document.getElementById('winnerText').textContent = stateCache.winnerText;
+  document.getElementById('drawnGrid').innerHTML = stateCache.drawn
+    .slice().sort((a,b)=>a-b)
+    .map(n => `<div class="drawnBall">${String(n).padStart(2,'0')}</div>`).join('');
+
+  // toca o som de revelação em TODAS as telas sincronizadas quando um novo número sai
+  if (estadoInitialized && stateCache.lastNumber !== null && stateCache.lastNumber !== prevLastNumber) {
+    playReveal();
+  }
+  prevLastNumber = stateCache.lastNumber;
+  estadoInitialized = true;
+});
+
+/* ---------- animação do globo ---------- */
+/* ---------- som (Web Audio API only - nunca data:audio ou Audio blob, trava no Android) ---------- */
+let audioCtx = null;
+function ensureAudio(){
+  try{
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch(e) { /* navegador sem suporte ou bloqueado, ignora */ }
+}
+function tone(freq, duration, type, startTime, gainValue){
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + (startTime || 0);
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.linearRampToValueAtTime(gainValue || 0.15, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.03);
+}
+function playTick(){
+  ensureAudio();
+  tone(300 + Math.random() * 200, 0.05, 'square', 0, 0.07);
+}
+function playSpinStart(){
+  ensureAudio();
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(150, t0);
+  osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.3);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.linearRampToValueAtTime(0.12, t0 + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + 0.4);
+}
+function playReveal(){
+  ensureAudio();
+  tone(523.25, 0.18, 'triangle', 0, 0.18);
+  tone(659.25, 0.18, 'triangle', 0.12, 0.18);
+  tone(783.99, 0.32, 'triangle', 0.24, 0.2);
+}
+
+const globo = document.getElementById('globo');
+let spinTimer = null, spinMode = 'medium';
+function renderBalls(){
+  globo.innerHTML = '';
+  for (let i = 0; i < 24; i++){
+    const b = document.createElement('div');
+    b.className = 'ball';
+    b.textContent = Math.floor(Math.random()*75)+1;
+    const size = globo.clientWidth - 60;
+    b.style.left = (Math.random()*size) + 'px';
+    b.style.top = (Math.random()*size) + 'px';
+    b.style.transform = `scale(${0.82 + Math.random()*0.42})`;
+    globo.appendChild(b);
+  }
+}
+function setSpeed(mode){
+  ensureAudio();
+  playSpinStart();
+  spinMode = mode;
+  stopSpin();
+  globo.classList.add('spin', mode);
+  spinTimer = setInterval(() => { renderBalls(); playTick(); }, mode === 'fast' ? 220 : 450);
+}
+function stopSpin(){
+  globo.className = 'globo';
+  if (spinTimer) clearInterval(spinTimer);
+  spinTimer = null;
+}
+async function drawNumber(){
+  if (!isAdmin) return;
+  ensureAudio();
+  const drawn = new Set(stateCache.drawn);
+  const nums = [];
+  for (let i = 1; i <= 75; i++) if (!drawn.has(i)) nums.push(i);
+  if (!nums.length) { alert('Todas as bolas já foram sorteadas.'); return; }
+  setSpeed(spinMode);
+  const n = nums[Math.floor(Math.random()*nums.length)];
+  const nStr = String(n).padStart(2,'0');
+  const aptos = participantsCache.filter(p => p.status === 'APTO');
+  const matched = aptos.filter(p => {
+    const list = (p.numbers || '').replace(';', ',').split(',').map(x=>x.trim()).filter(Boolean);
+    return list.includes(nStr) || list.includes(String(n));
+  });
+  let winner = null;
+  const pool = matched.length ? matched : aptos;
+  if (pool.length) {
+    const w = pool[Math.floor(Math.random()*pool.length)];
+    winner = `${w.first_name || w.name.split(' ')[0]} — cartela/ordem ${w.order_no || '—'}`;
+  }
+  const newDrawn = [...stateCache.drawn, n];
+  await db.ref('estado').update({ lastNumber: n, winnerText: winner || 'Nenhum apto correspondente.', drawn: newDrawn });
+  await db.ref('resultados').push({ mode: 'bingo', number: nStr, winner, created_at: Date.now() });
+}
+function resetDraw(){
+  if (!isAdmin) return;
+  if (!confirm('Reiniciar sorteio? Isso limpa os números já sorteados.')) return;
+  db.ref('estado').update({ lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] });
+}
+
+/* ---------- admin: criar admin / limpar ---------- */
+async function createAdmin(ev){
+  ev.preventDefault();
+  if (!isAdmin) return false;
+  const username = document.getElementById('newAdminUser').value.trim();
+  const password = document.getElementById('newAdminPass').value;
+  if (!username || !password) return false;
+  const exists = await db.ref('admins/' + username).get();
+  if (exists.exists()) { alert('Usuário já existe.'); return false; }
+  const hash = await sha256(password);
+  await db.ref('admins/' + username).set({ passwordHash: hash });
+  alert('Admin criado.');
+  ev.target.reset();
+  return false;
+}
+function clearAll(){
+  if (!isAdmin) return;
+  if (!confirm('Limpar todos os participantes cadastrados manualmente?')) return;
+  db.ref('participantes').remove();
+}
+
+/* ---------- init ---------- */
+document.addEventListener('click', ensureAudio, { once: true });
+document.addEventListener('touchstart', ensureAudio, { once: true });
+renderBalls();
+setSpeed('medium');
+switchTipo('bingo');
+</script>
+</body>
+</html>
