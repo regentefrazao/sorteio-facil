@@ -134,24 +134,19 @@ font-weight:800;color:#0f172a;background:radial-gradient(circle at 30% 30%, #fff
 
 /* ---- CTA flutuante iluminado ---- */
 .ctaFloat{
-  position:fixed; top:90px; right:10px; z-index:150;
+  position:absolute; top:78px; right:8px; z-index:150;
   background:linear-gradient(120deg,#d4af37,#fff3c4,#d4af37);
-  background-size:250% 100%;
-  color:#1a1400; font-weight:900; font-size:10.5px; text-decoration:none;
-  padding:10px 10px; border-radius:14px; text-align:center; max-width:86px;
-  line-height:1.25; box-shadow:0 0 10px rgba(212,175,55,.7), 0 0 22px rgba(212,175,55,.4);
-  animation: ctaGlow 2.4s ease-in-out infinite, ctaShine 3.5s linear infinite;
+  color:#1a1400; font-weight:900; font-size:9.5px; text-decoration:none;
+  padding:8px 8px; border-radius:12px; text-align:center; max-width:64px;
+  line-height:1.2; box-shadow:0 0 10px rgba(212,175,55,.6);
+  animation: ctaPulse 2.6s ease-in-out infinite;
   border:1px solid #fff3c4;
+  transform: translateZ(0);
 }
-@keyframes ctaGlow{
-  0%,100%{ box-shadow:0 0 8px rgba(212,175,55,.6), 0 0 16px rgba(212,175,55,.3); transform:scale(1); }
-  50%{ box-shadow:0 0 16px rgba(212,175,55,1), 0 0 30px rgba(212,175,55,.65); transform:scale(1.06); }
+@keyframes ctaPulse{
+  0%,100%{ filter:brightness(1); }
+  50%{ filter:brightness(1.4); }
 }
-@keyframes ctaShine{
-  0%{background-position:0% 50%}
-  100%{background-position:250% 50%}
-}
-@media (max-width:420px){ .ctaFloat{ top:auto; bottom:10px; right:10px; } }
 
 /* ---- Login overlay (só admin, sob demanda) ---- */
 .overlay{position:fixed;inset:0;background:rgba(2,6,23,.96);display:none;align-items:center;justify-content:center;z-index:999}
@@ -284,8 +279,8 @@ font-weight:800;color:#0f172a;background:radial-gradient(circle at 30% 30%, #fff
         </div>
       </div>
       <div class="row" style="width:100%;display:none" id="resetDrawControls">
-        <button class="danger" onclick="resetDraw('bingo')">🗑️ Apagar Bingo</button>
-        <button class="danger" onclick="resetDraw('dezena')">🗑️ Apagar Dezena</button>
+        <button class="danger" onclick="resetDraw('bingo')">🗑️ Apagar Bingo (tudo)</button>
+        <button class="danger" onclick="resetDraw('dezena')">🗑️ Apagar Dezena (tudo)</button>
       </div>
     </div>
 
@@ -397,9 +392,10 @@ font-weight:800;color:#0f172a;background:radial-gradient(circle at 30% 30%, #fff
       <div class="list" id="adminsList"></div>
 
       <div class="row" style="margin-top:10px">
-        <button class="danger small-btn" onclick="clearParticipantsByMode('bingo')">Limpar Bingo</button>
-        <button class="danger small-btn" onclick="clearParticipantsByMode('dezena')">Limpar Dezena</button>
+        <button class="danger small-btn" onclick="clearParticipantsByMode('bingo')">🗑️ Apagar tudo — Bingo</button>
+        <button class="danger small-btn" onclick="clearParticipantsByMode('dezena')">🗑️ Apagar tudo — Dezena</button>
       </div>
+      <small class="muted" style="display:block;margin-top:4px">Remove participantes e libera todas as cartelas reservadas/vendidas dessa modalidade.</small>
       <div class="row" style="margin-top:8px">
         <button class="gray" onclick="logout()">Logout</button>
       </div>
@@ -1255,9 +1251,34 @@ async function drawNumber(){
 async function resetDraw(modo){
   if (!isAdmin) return;
   const nomeModo = modo === 'bingo' ? 'Bingo' : 'Dezena';
-  if (!confirm('Apagar o sorteio de ' + nomeModo + ' (números sorteados e histórico de resultados)? Essa ação não pode ser desfeita. A outra modalidade não é afetada.')) return;
+  if (!confirm('Apagar TUDO da modalidade ' + nomeModo + ': números sorteados, resultados, participantes cadastrados E liberar todas as cartelas reservadas/vendidas de volta pra "LIVRE". Essa ação não pode ser desfeita. A outra modalidade (' + (modo === 'bingo' ? 'Dezena' : 'Bingo') + ') não é afetada.')) return;
+
+  // 1. limpar estado do globo (número sorteado, bolas já saídas)
   await db.ref('estado/' + modo).update({ lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] });
+
+  // 2. apagar histórico de resultados
   await db.ref('resultados/' + modo).remove();
+
+  // 3. remover participantes cadastrados nessa modalidade
+  const toRemoveParticipants = participantsCache.filter(p => p.mode === modo);
+  const participantUpdates = {};
+  toRemoveParticipants.forEach(p => { participantUpdates[p.id] = null; });
+  if (Object.keys(participantUpdates).length) await db.ref('participantes').update(participantUpdates);
+
+  // 4. liberar TODAS as cartelas dessa modalidade de volta pra "livre" (some reserva/venda antiga)
+  const cartelasSnap = await db.ref('cartelas/' + modo).get();
+  const cartelasVal = cartelasSnap.val() || {};
+  const cartelaUpdates = {};
+  Object.keys(cartelasVal).forEach(id => {
+    cartelaUpdates[id + '/status'] = 'livre';
+    cartelaUpdates[id + '/reservadoEm'] = null;
+    cartelaUpdates[id + '/reservadoNome'] = null;
+    cartelaUpdates[id + '/reservadoTelefone'] = null;
+    cartelaUpdates[id + '/participantId'] = null;
+  });
+  if (Object.keys(cartelaUpdates).length) await db.ref('cartelas/' + modo).update(cartelaUpdates);
+
+  alert('Jogo de ' + nomeModo + ' apagado por completo. Todas as cartelas voltaram pra "LIVRE".');
 }
 
 /* ---------- admin: criar admin / limpar ---------- */
@@ -1325,12 +1346,30 @@ async function deleteAdmin(username){
 async function clearParticipantsByMode(modo){
   if (!isAdmin) return;
   const nomeModo = modo === 'bingo' ? 'Bingo' : 'Dezena';
-  if (!confirm('Remover todos os participantes cadastrados na modalidade ' + nomeModo + '? Essa ação não pode ser desfeita.')) return;
+  if (!confirm('Apagar TUDO da modalidade ' + nomeModo + ': remove os participantes E libera todas as cartelas reservadas/vendidas (voltam a ficar LIVRE na vitrine). Essa ação não pode ser desfeita.')) return;
+
+  // 1) remove os participantes dessa modalidade
   const toRemove = participantsCache.filter(p => p.mode === modo);
-  const updates = {};
-  toRemove.forEach(p => updates[p.id] = null);
-  if (Object.keys(updates).length) await db.ref('participantes').update(updates);
-  alert(toRemove.length + ' participante(s) de ' + nomeModo + ' removido(s).');
+  const participantUpdates = {};
+  toRemove.forEach(p => participantUpdates[p.id] = null);
+  if (Object.keys(participantUpdates).length) await db.ref('participantes').update(participantUpdates);
+
+  // 2) libera TODAS as cartelas dessa modalidade (reservadas ou vendidas voltam a ficar livres, sem dono)
+  const cartelasSnap = await db.ref('cartelas/' + modo).get();
+  const cartelasVal = cartelasSnap.val() || {};
+  const cartelaUpdates = {};
+  Object.keys(cartelasVal).forEach(id => {
+    if (cartelasVal[id].status !== 'livre') {
+      cartelaUpdates[id + '/status'] = 'livre';
+      cartelaUpdates[id + '/reservadoEm'] = null;
+      cartelaUpdates[id + '/reservadoNome'] = null;
+      cartelaUpdates[id + '/reservadoTelefone'] = null;
+      cartelaUpdates[id + '/participantId'] = null;
+    }
+  });
+  if (Object.keys(cartelaUpdates).length) await db.ref('cartelas/' + modo).update(cartelaUpdates);
+
+  alert(toRemove.length + ' participante(s) removido(s) e todas as cartelas de ' + nomeModo + ' liberadas.');
 }
 
 /* ---------- admin: aviso de novo jogo pra quem já reservou (WhatsApp semi-automático) ---------- */
@@ -1376,6 +1415,16 @@ function abrirContratacao(){
 /* ---------- init ---------- */
 document.addEventListener('click', ensureAudio, { once: true });
 document.addEventListener('touchstart', ensureAudio, { once: true });
+/* CTA flutuante: mantém grudado na tela via JS (mais confiável que position:fixed em alguns navegadores Android/MIUI) */
+function pinCta(){
+  const el = document.getElementById('ctaFloat');
+  if (!el) return;
+  el.style.top = (window.scrollY + 78) + 'px';
+}
+window.addEventListener('scroll', pinCta, { passive: true });
+window.addEventListener('resize', pinCta);
+pinCta();
+
 loadJingle();
 renderBalls();
 setSpeed('medium', true);
