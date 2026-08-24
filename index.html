@@ -278,6 +278,17 @@ font-weight:800;color:#0f172a;background:radial-gradient(circle at 30% 30%, #fff
           <div class="drawnGrid" id="drawnGrid"></div>
         </div>
       </div>
+
+      <div id="premiosConfigArea" style="display:none;width:100%">
+        <h3 style="margin-top:14px">⚙️ Prêmios (<span id="premiosConfigModoLabel">Bingo</span>)</h3>
+        <div class="resultLine" id="premiosStatusDisplay" style="font-size:13px"></div>
+        <label style="margin-top:8px">Quantidade de prêmios</label>
+        <input type="number" id="qtdPremiosInput" min="1" max="20" value="3">
+        <button class="blue small-btn" style="margin-top:8px" onclick="gerarCamposPremios()">Gerar campos</button>
+        <div class="row" id="premiosSelectsWrap" style="margin-top:8px;grid-template-columns:1fr"></div>
+        <button class="gold" style="margin-top:8px" onclick="salvarConfigPremios()">💾 Salvar configuração de prêmios</button>
+      </div>
+
       <div class="row" style="width:100%;display:none" id="resetDrawControls">
         <button class="danger" onclick="resetDraw('bingo')">🗑️ Apagar Bingo (tudo)</button>
         <button class="danger" onclick="resetDraw('dezena')">🗑️ Apagar Dezena (tudo)</button>
@@ -436,10 +447,11 @@ let isAdmin = false;
 let participantsCache = [];
 let resultsCache = { bingo: [], dezena: [] };
 let stateCache = {
-  bingo: { lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] },
-  dezena: { lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] }
+  bingo: { lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [], ranking: [] },
+  dezena: { lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [], ranking: [] }
 };
 let drawModeAtivo = 'bingo';
+let premiosConfigCache = { bingo: null, dezena: null };
 let cartelasCache = { bingo: {}, dezena: {} };
 let tipoAtivo = 'bingo';
 let renderedCount = 0;
@@ -454,6 +466,7 @@ if (isDisplay) {
   document.getElementById('speedControls').style.display = 'none';
   document.getElementById('drawControls').style.display = 'none';
   document.getElementById('resetDrawControls').style.display = 'none';
+  document.getElementById('premiosConfigArea').style.display = 'none';
   document.getElementById('iniciarSorteioBtn').style.display = 'none';
 }
 
@@ -525,6 +538,7 @@ function applyAuthUI(){
     document.getElementById('speedControls').style.display = isAdmin ? 'grid' : 'none';
     document.getElementById('drawControls').style.display = isAdmin ? 'grid' : 'none';
     document.getElementById('resetDrawControls').style.display = isAdmin ? 'grid' : 'none';
+    document.getElementById('premiosConfigArea').style.display = isAdmin ? 'block' : 'none';
     document.getElementById('iniciarSorteioBtn').style.display = isAdmin ? 'block' : 'none';
   }
   if (isAdmin) { renderAdminsList(); renderBroadcastContacts(); }
@@ -917,7 +931,7 @@ async function setCartelaStatus(tipo, id, status){
       const nums = numerosDaCartela(c, tipo);
       const nome = c.reservadoNome || ('Cartela ' + id);
       const newRef = db.ref('participantes').push();
-      await newRef.set({
+      const dadosParticipante = {
         mode: tipo,
         name: nome,
         first_name: '',
@@ -926,7 +940,11 @@ async function setCartelaStatus(tipo, id, status){
         status: 'APTO',
         proof_file: null,
         created_at: Date.now()
-      });
+      };
+      if (tipo === 'bingo' && c.grid) {
+        dadosParticipante.bingoGrid = JSON.stringify(c.grid); // precisa da grade completa pra checar linha/coluna depois
+      }
+      await newRef.set(dadosParticipante);
       await ref.update({ status: 'vendida', participantId: newRef.key });
     } else {
       await ref.update({ status: 'vendida' });
@@ -989,11 +1007,21 @@ function renderParticipants(){
   document.getElementById('countAptos').textContent = participantsCache.filter(p => p.status === 'APTO').length;
   const plist = document.getElementById('plist');
   if (!plist) return;
-  plist.innerHTML = participantsCache.map((p, i) => `
+  plist.innerHTML = participantsCache.map((p, i) => {
+    let progresso = '';
+    if (p.status === 'APTO' && (p.mode === 'bingo' || p.mode === 'dezena')) {
+      const nums = parseNumerosParticipante(p);
+      const drawnSet = new Set(stateCache[p.mode].drawn);
+      const acertos = nums.filter(n => drawnSet.has(n)).length;
+      const completo = nums.length > 0 && acertos === nums.length;
+      progresso = `<br><span class="${completo ? 'ok' : 'muted'}">Progresso: ${acertos}/${nums.length} números ${completo ? '🏆 COMPLETO!' : ''}</span>`;
+    }
+    return `
     <div class="item">
       <strong>${i+1}. ${escapeHtml(p.name)}</strong> ${p.first_name ? '('+escapeHtml(p.first_name)+')' : ''}<br>
       Modalidade: ${escapeHtml(p.mode)} | Ordem: ${escapeHtml(p.order_no || '—')} | Status: <span class="${p.status==='APTO'?'ok':p.status==='INAPTO'?'inv':'pend'}">${p.status}</span><br>
       Cartela: ${escapeHtml(p.numbers || '—')} ${p.proof_file ? '<br><a href="'+p.proof_file+'" target="_blank" style="color:#93c5fd">Ver comprovante</a>' : ''}
+      ${progresso}
       <div class="row" style="margin-top:8px">
         <select onchange="setStatus('${p.id}', this.value)">
           <option value="PENDENTE" ${p.status==='PENDENTE'?'selected':''}>PENDENTE</option>
@@ -1002,7 +1030,8 @@ function renderParticipants(){
         </select>
         <button class="danger" onclick="deleteParticipant('${p.id}')">Remover</button>
       </div>
-    </div>`).join('') || "<div class='item'>Nenhum participante.</div>";
+    </div>`;
+  }).join('') || "<div class='item'>Nenhum participante.</div>";
 }
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1054,14 +1083,26 @@ db.ref('estado/bingo').on('value', snap => {
   stateCache.bingo.lastNumber = val.lastNumber ?? null;
   stateCache.bingo.winnerText = val.winnerText || 'Aguardando sorteio.';
   stateCache.bingo.drawn = val.drawn ? Object.values(val.drawn) : [];
-  if (drawModeAtivo === 'bingo') updateGloboDisplay();
+  stateCache.bingo.ranking = val.ranking ? Object.values(val.ranking) : [];
+  if (drawModeAtivo === 'bingo') { updateGloboDisplay(); updatePremiosStatusDisplay(); }
+  if (isAdmin) renderParticipants();
 });
 db.ref('estado/dezena').on('value', snap => {
   const val = snap.val() || {};
   stateCache.dezena.lastNumber = val.lastNumber ?? null;
   stateCache.dezena.winnerText = val.winnerText || 'Aguardando sorteio.';
   stateCache.dezena.drawn = val.drawn ? Object.values(val.drawn) : [];
-  if (drawModeAtivo === 'dezena') updateGloboDisplay();
+  stateCache.dezena.ranking = val.ranking ? Object.values(val.ranking) : [];
+  if (drawModeAtivo === 'dezena') { updateGloboDisplay(); updatePremiosStatusDisplay(); }
+  if (isAdmin) renderParticipants();
+});
+db.ref('estado/bingo/config').on('value', snap => {
+  premiosConfigCache.bingo = snap.val();
+  if (drawModeAtivo === 'bingo') updatePremiosStatusDisplay();
+});
+db.ref('estado/dezena/config').on('value', snap => {
+  premiosConfigCache.dezena = snap.val();
+  if (drawModeAtivo === 'dezena') updatePremiosStatusDisplay();
 });
 db.ref('estado/modoAtivo').on('value', snap => {
   const modo = snap.val() || 'bingo';
@@ -1069,11 +1110,68 @@ db.ref('estado/modoAtivo').on('value', snap => {
   document.getElementById('drawTabBingo').classList.toggle('active', modo === 'bingo');
   document.getElementById('drawTabDezena').classList.toggle('active', modo === 'dezena');
   document.getElementById('drawModeLabel').textContent = modo === 'bingo' ? 'Bingo' : 'Dezena';
+  document.getElementById('premiosConfigModoLabel').textContent = modo === 'bingo' ? 'Bingo' : 'Dezena';
   updateGloboDisplay();
+  updatePremiosStatusDisplay();
 });
 function switchDrawMode(modo){
   if (!isAdmin) return;
   db.ref('estado/modoAtivo').set(modo);
+}
+function updatePremiosStatusDisplay(){
+  const div = document.getElementById('premiosStatusDisplay');
+  if (!div) return;
+  const modo = drawModeAtivo;
+  const config = premiosConfigCache[modo];
+  const entregues = (stateCache[modo].ranking || []).length;
+  if (!config || !config.premios || !config.premios.length) {
+    div.textContent = 'Nenhuma quantidade de prêmios configurada — o sorteio roda sem limite definido (1 colocação por sorteio, sempre cartela cheia).';
+    return;
+  }
+  const total = config.premios.length;
+  if (entregues >= total) {
+    div.textContent = '🎉 Sorteio de ' + (modo === 'bingo' ? 'Bingo' : 'Dezena') + ' ENCERRADO! Todos os ' + total + ' prêmio(s) foram entregues.';
+  } else {
+    div.textContent = 'Prêmios entregues: ' + entregues + '/' + total + ' — próximo: ' + nomeOrdinal(entregues + 1) + ' (' + rotuloCriterio(config.premios[entregues]) + ')';
+  }
+}
+function gerarCamposPremios(){
+  const qtd = Math.max(1, Math.min(20, parseInt(document.getElementById('qtdPremiosInput').value, 10) || 1));
+  const modo = drawModeAtivo;
+  const wrap = document.getElementById('premiosSelectsWrap');
+  let html = '';
+  for (let i = 1; i <= qtd; i++){
+    if (modo === 'bingo') {
+      let padrao = 'cartela_cheia';
+      if (i === 1) padrao = 'linha_horizontal';
+      else if (i === 2) padrao = 'linha_vertical';
+      html += `<label>${nomeOrdinal(i)}</label>
+        <select id="premioSelect${i}">
+          <option value="linha_horizontal" ${padrao==='linha_horizontal'?'selected':''}>Linha horizontal</option>
+          <option value="linha_vertical" ${padrao==='linha_vertical'?'selected':''}>Linha vertical (coluna)</option>
+          <option value="cartela_cheia" ${padrao==='cartela_cheia'?'selected':''}>Cartela cheia</option>
+        </select>`;
+    } else {
+      html += `<label>${nomeOrdinal(i)}</label><input value="Série completa (10 dezenas)" disabled>`;
+    }
+  }
+  wrap.innerHTML = html;
+}
+async function salvarConfigPremios(){
+  if (!isAdmin) return;
+  const qtd = Math.max(1, Math.min(20, parseInt(document.getElementById('qtdPremiosInput').value, 10) || 1));
+  const modo = drawModeAtivo;
+  const premios = [];
+  for (let i = 1; i <= qtd; i++){
+    if (modo === 'bingo') {
+      const sel = document.getElementById('premioSelect' + i);
+      premios.push(sel ? sel.value : 'cartela_cheia');
+    } else {
+      premios.push('cartela_cheia');
+    }
+  }
+  await db.ref('estado/' + modo + '/config').set({ premios });
+  alert('Configuração salva: ' + premios.length + ' prêmio(s) pra ' + (modo === 'bingo' ? 'Bingo' : 'Dezena') + '.');
 }
 
 // musiquinha de abertura: toca em TODAS as telas sincronizadas (admin, apostador e telão) quando o admin aperta INICIAR SORTEIO
@@ -1220,41 +1318,142 @@ function stopSpin(){
   if (spinTimer) clearInterval(spinTimer);
   spinTimer = null;
 }
+const ORDINAIS = { 1: '🥇 1º prêmio', 2: '🥈 2º prêmio', 3: '🥉 3º prêmio', 4: '4º prêmio', 5: '5º prêmio' };
+function nomeOrdinal(pos){ return ORDINAIS[pos] || (pos + 'º prêmio'); }
+function rotuloCriterio(tipo){
+  if (tipo === 'linha_horizontal') return 'linha horizontal';
+  if (tipo === 'linha_vertical') return 'linha vertical (coluna)';
+  return 'cartela cheia';
+}
+
+function parseNumerosParticipante(p){
+  return (p.numbers || '').replace(';', ',').split(',')
+    .map(x => parseInt(x.trim(), 10))
+    .filter(x => !isNaN(x));
+}
+
+/* checagem de linha horizontal / coluna vertical / cartela cheia, a partir da grade B-I-N-G-O guardada */
+function bingoLinhaCompleta(grid, drawnSet){
+  for (let row = 0; row < 5; row++){
+    let ok = true;
+    for (const col of ['B','I','N','G','O']){
+      if (col === 'N' && row === 2) continue; // espaço livre no centro
+      const arr = grid[col] || [];
+      const idx = (col === 'N' && row > 2) ? row - 1 : row;
+      const val = arr[idx];
+      if (val === undefined || !drawnSet.has(val)) { ok = false; break; }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+function bingoColunaCompleta(grid, drawnSet){
+  return ['B','I','N','G','O'].some(col => {
+    const arr = grid[col] || [];
+    return arr.length > 0 && arr.every(v => drawnSet.has(v));
+  });
+}
+function bingoCartelaCompleta(grid, drawnSet){
+  const todos = [...(grid.B||[]), ...(grid.I||[]), ...(grid.N||[]), ...(grid.G||[]), ...(grid.O||[])];
+  return todos.length > 0 && todos.every(v => drawnSet.has(v));
+}
+
+let sorteando = { bingo: false, dezena: false };
+
 async function drawNumber(){
   if (!isAdmin) return;
-  ensureAudio();
   const modo = drawModeAtivo;
-  const drawn = new Set(stateCache[modo].drawn);
-  const nums = [];
-  for (let i = 1; i <= 75; i++) if (!drawn.has(i)) nums.push(i);
-  if (!nums.length) { alert('Todas as bolas já foram sorteadas nesta modalidade (' + (modo === 'bingo' ? 'Bingo' : 'Dezena') + ').'); return; }
-  setSpeed(spinMode);
-  const n = nums[Math.floor(Math.random()*nums.length)];
-  playExtractPop(); // som breve e imediato, só o admin ouve
-  const nStr = String(n).padStart(2,'0');
 
-  const aptos = participantsCache.filter(p => p.status === 'APTO' && p.mode === modo);
-  const matched = aptos.filter(p => {
-    const list = (p.numbers || '').replace(';', ',').split(',').map(x=>x.trim()).filter(Boolean);
-    return list.includes(nStr) || list.includes(String(n));
-  });
-  let winner = null;
-  if (matched.length) {
-    const w = matched[Math.floor(Math.random()*matched.length)];
-    winner = `${w.first_name || w.name.split(' ')[0]} — cartela/ordem ${w.order_no || '—'}`;
+  if (sorteando[modo]) return; // trava: ignora clique duplo/rápido enquanto o sorteio anterior ainda está sendo salvo
+  sorteando[modo] = true;
+
+  try {
+    ensureAudio();
+
+    const config = premiosConfigCache[modo];
+    const premiosConfig = (config && config.premios) || [];
+    const rankingInicial = stateCache[modo].ranking || [];
+    if (premiosConfig.length && rankingInicial.length >= premiosConfig.length) {
+      alert('Todos os ' + premiosConfig.length + ' prêmio(s) de ' + (modo === 'bingo' ? 'Bingo' : 'Dezena') + ' já foram entregues! Aperte "Apagar" se quiser começar um sorteio novo.');
+      return;
+    }
+
+    const drawnAntes = new Set(stateCache[modo].drawn);
+    const nums = [];
+    for (let i = 1; i <= 75; i++) if (!drawnAntes.has(i)) nums.push(i);
+    if (!nums.length) { alert('Todas as bolas já foram sorteadas nesta modalidade (' + (modo === 'bingo' ? 'Bingo' : 'Dezena') + ').'); return; }
+
+    setSpeed(spinMode);
+    const n = nums[Math.floor(Math.random()*nums.length)];
+    playExtractPop(); // som breve e imediato, só o admin ouve
+    const nStr = String(n).padStart(2,'0');
+
+    const newDrawn = [...stateCache[modo].drawn, n];
+    const drawnSet = new Set(newDrawn);
+
+    let rankingAtual = rankingInicial;
+    let jaGanharam = new Set(rankingAtual.map(r => r.participantId));
+    const novasEntradas = [];
+
+    // preenche as colocações em ordem (1º, 2º, 3º...), um critério de cada vez, conforme configurado
+    while (!premiosConfig.length || rankingAtual.length < premiosConfig.length) {
+      const posicaoIdx = rankingAtual.length; // 0-indexed
+      const tipoExigido = premiosConfig[posicaoIdx] || 'cartela_cheia';
+
+      const candidatos = participantsCache.filter(p => p.status === 'APTO' && p.mode === modo && !jaGanharam.has(p.id));
+      const completaram = candidatos.filter(p => {
+        if (modo === 'dezena' || tipoExigido === 'cartela_cheia') {
+          const numsP = parseNumerosParticipante(p);
+          return numsP.length > 0 && numsP.every(x => drawnSet.has(x));
+        }
+        if (!p.bingoGrid) return false; // sem grade estruturada (cadastro manual sem grade) — não dá pra checar linha/coluna
+        let grid;
+        try { grid = JSON.parse(p.bingoGrid); } catch(e) { return false; }
+        if (tipoExigido === 'linha_horizontal') return bingoLinhaCompleta(grid, drawnSet);
+        if (tipoExigido === 'linha_vertical') return bingoColunaCompleta(grid, drawnSet);
+        return bingoCartelaCompleta(grid, drawnSet);
+      });
+
+      if (!completaram.length) break; // ninguém bateu esse critério ainda nesta rodada
+
+      // se mais de uma pessoa completa o mesmo critério no mesmo sorteio, ordem entre elas é aleatória (empate real)
+      const escolhido = completaram[Math.floor(Math.random() * completaram.length)];
+      const posicao = rankingAtual.length + 1;
+      const entrada = {
+        participantId: escolhido.id,
+        name: escolhido.first_name || escolhido.name.split(' ')[0],
+        order_no: escolhido.order_no || '—',
+        posicao,
+        criterio: modo === 'dezena' ? 'cartela_cheia' : tipoExigido
+      };
+      novasEntradas.push(entrada);
+      rankingAtual = [...rankingAtual, entrada];
+      jaGanharam.add(escolhido.id);
+
+      if (!premiosConfig.length) break; // sem quantidade configurada: só entrega 1 colocação por sorteio (comportamento simples)
+    }
+
+    const winnerText = rankingAtual.length
+      ? rankingAtual.map(r => `${nomeOrdinal(r.posicao)}${r.criterio && r.criterio !== 'cartela_cheia' ? ' (' + rotuloCriterio(r.criterio) + ')' : ''}: ${r.name}`).join(' | ')
+      : 'Nenhuma cartela/série completa ainda.';
+
+    const winnerResultado = novasEntradas.length
+      ? novasEntradas.map(e => `${nomeOrdinal(e.posicao)}: ${e.name}`).join(', ')
+      : null;
+
+    await db.ref('estado/' + modo).update({ lastNumber: n, winnerText, drawn: newDrawn, ranking: rankingAtual });
+    await db.ref('resultados/' + modo).push({ number: nStr, winner: winnerResultado, created_at: Date.now() });
+  } finally {
+    sorteando[modo] = false;
   }
-
-  const newDrawn = [...stateCache[modo].drawn, n];
-  await db.ref('estado/' + modo).update({ lastNumber: n, winnerText: winner || 'Nenhum apto correspondente.', drawn: newDrawn });
-  await db.ref('resultados/' + modo).push({ number: nStr, winner, created_at: Date.now() });
 }
 async function resetDraw(modo){
   if (!isAdmin) return;
   const nomeModo = modo === 'bingo' ? 'Bingo' : 'Dezena';
   if (!confirm('Apagar TUDO da modalidade ' + nomeModo + ': números sorteados, resultados, participantes cadastrados E liberar todas as cartelas reservadas/vendidas de volta pra "LIVRE". Essa ação não pode ser desfeita. A outra modalidade (' + (modo === 'bingo' ? 'Dezena' : 'Bingo') + ') não é afetada.')) return;
 
-  // 1. limpar estado do globo (número sorteado, bolas já saídas)
-  await db.ref('estado/' + modo).update({ lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [] });
+  // 1. limpar estado do globo (número sorteado, bolas já saídas, ranking de colocações e configuração de prêmios)
+  await db.ref('estado/' + modo).update({ lastNumber: null, winnerText: 'Aguardando sorteio.', drawn: [], ranking: [], config: null });
 
   // 2. apagar histórico de resultados
   await db.ref('resultados/' + modo).remove();
@@ -1429,6 +1628,7 @@ loadJingle();
 renderBalls();
 setSpeed('medium', true);
 switchTipo('bingo');
+gerarCamposPremios();
 </script>
 </body>
 </html>
